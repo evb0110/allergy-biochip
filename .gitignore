@@ -1,0 +1,74 @@
+# === ALLERGEN ANALYSIS PROJECT ===
+
+# Node.js dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# TypeScript build outputs
+*.tsbuildinfo
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# macOS system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# === WEB APPLICATION (allergy-biochip/) ===
+
+# Vite build outputs
+allergy-biochip/dist/
+allergy-biochip/dist-ssr/
+allergy-biochip/coverage/
+
+# Vue.js specific
+allergy-biochip/.vscode/
+allergy-biochip/*.local
+
+# Test outputs
+allergy-biochip/cypress/videos/
+allergy-biochip/cypress/screenshots/
+
+# === DEVELOPMENT & DEPLOYMENT ===
+
+# Vercel
+.vercel/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+
+# Logs
+logs/
+*.log
+
+# === DATA PROTECTION ===
+
+# Sensitive data (uncomment if needed)
+# *.csv
+# *.xlsx
+# *.docx
+
+# Personal configuration
+.claude/
+CLAUDE.local.md

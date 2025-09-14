@@ -1,0 +1,19 @@
+{
+  "name": "rinat",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/allergen_processor_v2.js",
+    "dev": "npx tsx allergen_processor_v2.ts",
+    "bun": "bun run allergen_processor_v2.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^24.3.3",
+    "typescript": "^5.9.2"
+  }
+}
