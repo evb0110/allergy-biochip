@@ -103,6 +103,10 @@ export function calculateBackground(dataArray: number[][]) {
 
 export function processAll(csvContent: string) {
   const dataArray = parseCSVData(csvContent)
+  return processFromData(dataArray)
+}
+
+export function processFromData(dataArray: number[][]) {
   const background = calculateBackground(dataArray)
   const results = ALLERGEN_MAPPING.map(allergen => {
     const vals: number[] = []
@@ -153,5 +157,9 @@ export function toCSV(results: any[]) {
 export function suggestOutputFilename() {
   const ts = new Date().toISOString().split('T')[0]
   return `allergen_results_${ts}.csv`
+}
+
+export function getLayout() {
+  return ALLERGEN_MAPPING.map(a => ({ position: a.position, code: a.code, rows: a.rows, column: a.column }))
 }
 

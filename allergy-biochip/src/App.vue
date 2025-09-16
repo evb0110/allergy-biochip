@@ -1,35 +1,102 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { processAll, toCSV, suggestOutputFilename } from './lib/allergenProcessor'
+import { processFromData, toCSV, suggestOutputFilename, getLayout } from './lib/allergenProcessor'
 
 const csvText = ref('')
 const error = ref('')
 const processing = ref(false)
-const processed = ref<null | ReturnType<typeof processAll>>(null)
+const processed = ref<null | ReturnType<typeof processFromData>>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const pasteCatcher = ref<HTMLTextAreaElement | null>(null)
 const isApplePlatform = ref(false)
 const pasteComboLabel = computed(() => (isApplePlatform.value ? '⌘' : 'Ctrl') + '+V')
 
 const hasResults = computed(() => !!processed.value)
+const tableData = ref<string[][]>([])
+const hasTableData = computed(() => tableData.value.length > 0)
+const isEditable = ref(false)
+const preamble = ref('')
+const maxCols = computed(() => tableData.value.reduce((m, r) => Math.max(m, r.length), 0))
+const headerLabels = computed(() => Array.from({ length: maxCols.value }, (_, i) => 'C' + (i + 1)))
+const dataRows = computed(() => tableData.value)
+const canClear = computed(() => hasTableData.value || hasResults.value)
+const showMapping = ref(false)
+const layout = getLayout()
+const originalBuffer = ref<ArrayBuffer | null>(null)
+const selectedEncoding = ref<'auto' | 'utf-8' | 'windows-1251'>('auto')
+const startLineOverride = ref<number | null>(null)
+const advContainer = ref<HTMLDivElement | null>(null)
+const advancedOpen = ref(false)
+const showSource = ref(true)
+const cellMap = computed(() => {
+  const m = new Map<string, string>()
+  layout.forEach(a => {
+    a.rows.forEach(r => {
+      m.set(`${r},${a.column - 1}`,' '+a.code)
+    })
+  })
+  for (let r = 4; r < 8; r++) m.set(`${r},11`, ' BG')
+  return m
+})
+function cellCode(r: number, c: number) {
+  return cellMap.value.get(`${r},${c}`) || ''
+}
 
 function resetAll() {
   csvText.value = ''
   error.value = ''
   processed.value = null
   processing.value = false
+  preamble.value = ''
+  tableData.value = []
+  isEditable.value = false
+  originalBuffer.value = null
+  selectedEncoding.value = 'auto'
+  startLineOverride.value = null
 }
 
-async function handleText(text: string) {
+function parseToTable(text: string) {
   error.value = ''
+  processed.value = null
   if (!text || text.trim().length === 0) {
     error.value = 'Empty input'
+    tableData.value = []
+    return
+  }
+  const lines = text.replace(/\u0000/g,'').split(/\r?\n/).filter(l => l.trim().length > 0)
+  let startIdx = detectDataStart(lines)
+  if (startLineOverride.value !== null) startIdx = Math.max(0, Math.min(lines.length - 1, startLineOverride.value))
+  const rawPreamble = startIdx > 0 ? lines.slice(0, startIdx).join(' ') : ''
+  preamble.value = rawPreamble.replace(/;+/g, ' ').replace(/\s{2,}/g, ' ').trim()
+  const dataLines = lines.slice(startIdx)
+  const rows = dataLines.map(l => l.split(';'))
+  tableData.value = rows
+}
+
+function processCurrentTable() {
+  error.value = ''
+  processed.value = null
+  const rows = tableData.value
+  if (!rows.length) {
+    error.value = 'CSV must contain header and 8 data rows (semicolon-delimited).'
+    return
+  }
+  if (rows.length < 8) {
+    error.value = 'CSV must contain header and 8 data rows (semicolon-delimited).'
     return
   }
   processing.value = true
   try {
-    const res = processAll(text)
+    const eightRows = rows.slice(0, 8)
+    const dataArray = eightRows.map(r => r.map(t => {
+      const cleaned = t.replace(',', '.').trim()
+      const num = parseFloat(cleaned)
+      return Number.isFinite(num) ? num : NaN
+    }))
+    const res = processFromData(dataArray)
     processed.value = res
+    isEditable.value = false
+    showSource.value = false
   } catch (e: any) {
     error.value = e?.message || 'Failed to process CSV'
     processed.value = null
@@ -40,9 +107,11 @@ async function handleText(text: string) {
 
 async function onFileSelected(file: File) {
   try {
-    const text = await file.text()
+    const buf = await file.arrayBuffer()
+    originalBuffer.value = buf
+    const text = decodeCSVFromBuffer(buf, selectedEncoding.value)
     csvText.value = text
-    await handleText(text)
+    parseToTable(text)
   } catch (e: any) {
     error.value = 'Unable to read file'
   }
@@ -76,7 +145,7 @@ async function onInputPaste(e: ClipboardEvent) {
   const text = e.clipboardData.getData('text/plain') || e.clipboardData.getData('text')
   if (text && text.includes(';')) {
     csvText.value = text
-    await handleText(text)
+    parseToTable(text)
     return
   }
 
@@ -87,18 +156,20 @@ async function onInputPaste(e: ClipboardEvent) {
         const types: string[] = (ci as any).types || []
         if (types.includes('text/csv')) {
           const blob = await ci.getType('text/csv')
-          const textCsv = await blob.text()
-          if (textCsv) {
-            csvText.value = textCsv
-            await handleText(textCsv)
-            return
-          }
+          const buf = await blob.arrayBuffer()
+          originalBuffer.value = buf
+          const decoded = decodeCSVFromBuffer(buf, selectedEncoding.value)
+          csvText.value = decoded
+          parseToTable(decoded)
+          return
         } else if (types.includes('text/plain')) {
           const blob = await ci.getType('text/plain')
-          const txt = await blob.text()
+          const buf = await blob.arrayBuffer()
+          originalBuffer.value = buf
+          const txt = decodeCSVFromBuffer(buf, selectedEncoding.value)
           if (txt && txt.includes(';')) {
             csvText.value = txt
-            await handleText(txt)
+            parseToTable(txt)
             return
           }
         }
@@ -159,7 +230,7 @@ async function pasteFromClipboard() {
       const text = await (navigator as any).clipboard.readText()
       if (text && text.includes(';')) {
         csvText.value = text
-        await handleText(text)
+        parseToTable(text)
         return
       }
     }
@@ -169,17 +240,21 @@ async function pasteFromClipboard() {
         const types: string[] = (item as any).types || []
         if (types.includes('text/csv')) {
           const blob = await item.getType('text/csv')
-          const text = await blob.text()
+          const buf = await blob.arrayBuffer()
+          originalBuffer.value = buf
+          const text = decodeCSVFromBuffer(buf, selectedEncoding.value)
           csvText.value = text
-          await handleText(text)
+          parseToTable(text)
           return
         }
         if (types.includes('text/plain')) {
           const blob = await item.getType('text/plain')
-          const text = await blob.text()
+          const buf = await blob.arrayBuffer()
+          originalBuffer.value = buf
+          const text = decodeCSVFromBuffer(buf, selectedEncoding.value)
           if (text && text.includes(';')) {
             csvText.value = text
-            await handleText(text)
+            parseToTable(text)
             return
           }
         }
@@ -187,6 +262,56 @@ async function pasteFromClipboard() {
     }
   } catch (_) {}
   error.value = 'Clipboard does not contain CSV text or file. Try Drop or Choose file.'
+}
+
+function countReplacementChars(s: string) {
+  let c = 0
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) === 0xfffd) c++
+  return c
+}
+function decodeCSVFromBuffer(buf: ArrayBuffer, forced: 'auto' | 'utf-8' | 'windows-1251' = 'auto') {
+  try {
+    if (forced !== 'auto') return new TextDecoder(forced).decode(buf)
+    const utf8 = new TextDecoder('utf-8').decode(buf)
+    const cp1251 = new TextDecoder('windows-1251').decode(buf)
+    const badUtf = countReplacementChars(utf8)
+    const bad1251 = countReplacementChars(cp1251)
+    if (bad1251 < badUtf) return cp1251
+    return utf8
+  } catch {
+    try { return new TextDecoder('utf-8').decode(buf) } catch { return '' }
+  }
+}
+
+function isNumericToken(t: string) {
+  const cleaned = t.replace(',', '.').trim()
+  if (!cleaned) return false
+  const n = parseFloat(cleaned)
+  return Number.isFinite(n)
+}
+function detectDataStart(lines: string[]) {
+  const minCols = 12
+  const needRows = 8
+  for (let i = 0; i < lines.length; i++) {
+    let ok = true
+    for (let r = 0; r < needRows; r++) {
+      const line = lines[i + r]
+      if (!line) { ok = false; break }
+      const tokens = line.split(';')
+      const numeric = tokens.filter(isNumericToken).length
+      if (tokens.length < minCols || numeric < Math.floor(tokens.length * 0.6)) { ok = false; break }
+    }
+    if (ok) return i
+  }
+  return 0
+}
+
+function reDecodeWithEncoding(enc: 'auto' | 'utf-8' | 'windows-1251') {
+  selectedEncoding.value = enc
+  if (!originalBuffer.value) return
+  const text = decodeCSVFromBuffer(originalBuffer.value, enc)
+  csvText.value = text
+  parseToTable(text)
 }
 
 let pasteListener: any
@@ -197,9 +322,24 @@ onMounted(() => {
   pasteListener = (e: ClipboardEvent) => onInputPaste(e)
   window.addEventListener('paste', pasteListener as any)
   setTimeout(() => pasteCatcher.value?.focus(), 0)
+  const onDocClick = (e: MouseEvent) => {
+    if (!advContainer.value) return
+    if (advancedOpen.value && !advContainer.value.contains(e.target as Node)) advancedOpen.value = false
+  }
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') advancedOpen.value = false
+  }
+  ;(window as any).__advHandlers = { onDocClick, onKey }
+  document.addEventListener('click', onDocClick)
+  document.addEventListener('keydown', onKey)
 })
 onBeforeUnmount(() => {
   if (pasteListener) window.removeEventListener('paste', pasteListener as any)
+  const h = (window as any).__advHandlers
+  if (h) {
+    document.removeEventListener('click', h.onDocClick)
+    document.removeEventListener('keydown', h.onKey)
+  }
 })
 </script>
 
@@ -207,7 +347,6 @@ onBeforeUnmount(() => {
   <div class="container">
     <header class="header">
       <h1>Allergen Biochip Analyzer</h1>
-      <p>Paste or drop the raw CSV. Processing runs automatically.</p>
     </header>
 
     <section class="uploader">
@@ -229,34 +368,66 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="actions">
-        <button class="btn ghost" @click="resetAll">Clear</button>
-        <button class="btn primary" :disabled="!hasResults || processing" @click="exportCSV">Save results</button>
+        <button v-if="canClear" class="btn ghost" @click="resetAll">Clear source and results</button>
+        <button v-if="hasTableData" class="btn" @click="isEditable = !isEditable">{{ isEditable ? 'Done editing' : 'Edit source table' }}</button>
+        <button v-if="hasTableData" class="btn" @click="showMapping = !showMapping">{{ showMapping ? 'Hide mapping' : 'Show mapping' }}</button>
+        <button v-if="hasResults && hasTableData" class="btn" @click="showSource = !showSource">{{ showSource ? 'Hide source table' : 'Show source table' }}</button>
+        <button v-if="hasTableData" class="btn primary" :disabled="processing" @click="processCurrentTable">Process data</button>
+        <button v-if="hasResults" class="btn primary" :disabled="processing" @click="exportCSV">Save results to file</button>
+        <div v-if="originalBuffer" class="adv-container" ref="advContainer">
+          <button class="btn" @click="advancedOpen = !advancedOpen">{{ advancedOpen ? 'Hide advanced settings' : 'Show advanced settings' }}</button>
+          <div v-if="advancedOpen" class="adv-popover">
+            <div class="caret" />
+            <div class="row">
+              <label>Encoding:</label>
+              <select v-model="selectedEncoding" @change="reDecodeWithEncoding(selectedEncoding)">
+                <option value="auto">Auto</option>
+                <option value="utf-8">UTF-8</option>
+                <option value="windows-1251">CP1251</option>
+              </select>
+            </div>
+            <div class="row">
+              <label>Data starts at line:</label>
+              <input type="number" min="0" :max="(csvText.split(/\r?\n/).length-1)" v-model.number="startLineOverride" @change="parseToTable(csvText)" />
+              <span class="hint-text">0-based</span>
+            </div>
+          </div>
+        </div>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
     </section>
 
     <section v-if="processing" class="processing">Processing…</section>
 
-    <section v-if="hasResults" class="results">
-      <div class="stats">
-        <div class="stat">
-          <div class="label">Background</div>
-          <div class="value">{{ processed!.background.value.toFixed(2) }}</div>
-        </div>
-        <div class="stat">
-          <div class="label">Total</div>
-          <div class="value">{{ processed!.stats.total }}</div>
-        </div>
-        <div class="stat">
-          <div class="label">Significant</div>
-          <div class="value">{{ processed!.stats.significant }}</div>
-        </div>
-        <div class="stat">
-          <div class="label">Max, МЕ/мл</div>
-          <div class="value">{{ processed!.stats.maxConcentration.toFixed(2) }}</div>
-        </div>
+    <section v-if="hasTableData" class="source">
+      <div v-if="hasResults" class="actions" style="margin-top:8px;">
+        <button class="btn" @click="showSource = !showSource">{{ showSource ? 'Hide source table' : 'Show source table' }}</button>
       </div>
+      <div v-if="preamble" class="preamble">{{ preamble }}</div>
+      <div v-if="showSource" class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th v-for="(h, hi) in headerLabels" :key="'h'+hi">{{ h }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, ri) in dataRows" :key="'r'+ri">
+              <td v-for="(cell, ci) in row" :key="'c'+ci" :class="{'bg-cell': showMapping && cellCode(ri,ci).trim()==='BG'}">
+                <template v-if="isEditable">
+                  <input v-model="tableData[ri][ci]" />
+                </template>
+                <template v-else>
+                  {{ cell }}<span v-if="showMapping && cellCode(ri,ci)" class="map-badge">{{ cellCode(ri,ci) }}</span>
+                </template>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
+    <section v-if="hasResults" class="results">
       <div class="table-wrap">
         <table class="table">
           <thead>
@@ -289,9 +460,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <footer class="footer">
-      <span>CSV must contain header and 8 data rows (semicolon-delimited).</span>
-    </footer>
+    
   </div>
 </template>
 
@@ -375,6 +544,28 @@ onBeforeUnmount(() => {
 .lvl-5 { background: #ffe4e6; color: #9f1239; border-color: #fecdd3; }
 .lvl-6 { background: #f3e8ff; color: #6b21a8; border-color: #e9d5ff; }
 .footer { margin-top: 18px; color: #6b7280; font-size: 12px; }
+
+.source .table input {
+  width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+}
+.preamble { margin-top: 10px; margin-bottom: 10px; color: #334155; font-size: 13px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 10px; border-radius: 8px; }
+.map-badge { margin-left: 6px; font-size: 11px; padding: 2px 6px; border: 1px solid #e5e7eb; border-radius: 999px; color: #334155; background: #f1f5f9; }
+.bg-cell { background: #fff7ed; }
+.source .table td { white-space: nowrap; }
+.map-badge { white-space: nowrap; display: inline-flex; align-items: center; }
+.controls { margin-top: 10px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.adv-inline { display: inline-flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.controls .row { display: inline-flex; gap: 8px; align-items: center; }
+.controls select, .controls input[type="number"] { border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 8px; }
+.adv-container { position: relative; display: inline-block; }
+.adv-popover { position: absolute; z-index: 20; top: 42px; right: 0; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); display: flex; gap: 16px; align-items: center; }
+.adv-popover .row { display: inline-flex; gap: 8px; align-items: center; }
+.adv-popover select, .adv-popover input[type="number"] { border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 8px; }
+.adv-popover .caret { position: absolute; top: -8px; right: 24px; width: 16px; height: 16px; background: #ffffff; border-left: 1px solid #e5e7eb; border-top: 1px solid #e5e7eb; transform: rotate(45deg); }
 
 .hint { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; color: #64748b; }
 .hint-title { font-weight: 600; color: #475569; }
