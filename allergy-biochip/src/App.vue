@@ -372,7 +372,7 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-md);
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.0);
+  box-shadow: var(--shadow-sm);
   transition: background .2s ease, transform .06s ease, box-shadow .2s ease, border-color .2s ease;
 }
 
@@ -401,9 +401,15 @@ onBeforeUnmount(() => {
 }
 
 .btn.ghost {
-  background: transparent;
-  color: #374151;
-  border-color: var(--border);
+  background: #f1f5f9;
+  color: #1f2937;
+  border-color: #cbd5e1;
+  box-shadow: var(--shadow-sm);
+}
+
+.btn.ghost:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
 }
 
 .actions {
@@ -685,13 +691,13 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   padding: 2px 6px;
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
+  border: 1px solid #c7d2fe;
+  background: #eef2ff;
   border-bottom-width: 2px;
   border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-  color: #0f172a;
+  color: #1e3a8a;
 }
 
 .plus {
