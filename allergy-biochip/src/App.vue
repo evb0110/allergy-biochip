@@ -23,10 +23,7 @@ const canClear = computed(() => hasTableData.value || hasResults.value)
 const showMapping = ref(false)
 const layout = getLayout()
 const originalBuffer = ref<ArrayBuffer | null>(null)
-const selectedEncoding = ref<'auto' | 'utf-8' | 'windows-1251'>('auto')
-const startLineOverride = ref<number | null>(null)
-const advContainer = ref<HTMLDivElement | null>(null)
-const advancedOpen = ref(false)
+// removed advanced settings controls
 const showSource = ref(true)
 const cellMap = computed(() => {
   const m = new Map<string, string>()
@@ -42,6 +39,10 @@ function cellCode(r: number, c: number) {
   return cellMap.value.get(`${r},${c}`) || ''
 }
 
+function wrapAllergen(name: string) {
+  return (name || '').replace(/\//g, '/<wbr>')
+}
+
 function resetAll() {
   csvText.value = ''
   error.value = ''
@@ -51,8 +52,6 @@ function resetAll() {
   tableData.value = []
   isEditable.value = false
   originalBuffer.value = null
-  selectedEncoding.value = 'auto'
-  startLineOverride.value = null
 }
 
 function parseToTable(text: string) {
@@ -65,7 +64,6 @@ function parseToTable(text: string) {
   }
   const lines = text.replace(/\u0000/g,'').split(/\r?\n/).filter(l => l.trim().length > 0)
   let startIdx = detectDataStart(lines)
-  if (startLineOverride.value !== null) startIdx = Math.max(0, Math.min(lines.length - 1, startLineOverride.value))
   const rawPreamble = startIdx > 0 ? lines.slice(0, startIdx).join(' ') : ''
   preamble.value = rawPreamble.replace(/;+/g, ' ').replace(/\s{2,}/g, ' ').trim()
   const dataLines = lines.slice(startIdx)
@@ -109,7 +107,7 @@ async function onFileSelected(file: File) {
   try {
     const buf = await file.arrayBuffer()
     originalBuffer.value = buf
-    const text = decodeCSVFromBuffer(buf, selectedEncoding.value)
+    const text = decodeCSVFromBuffer(buf)
     csvText.value = text
     parseToTable(text)
   } catch (e: any) {
@@ -158,7 +156,7 @@ async function onInputPaste(e: ClipboardEvent) {
           const blob = await ci.getType('text/csv')
           const buf = await blob.arrayBuffer()
           originalBuffer.value = buf
-          const decoded = decodeCSVFromBuffer(buf, selectedEncoding.value)
+          const decoded = decodeCSVFromBuffer(buf)
           csvText.value = decoded
           parseToTable(decoded)
           return
@@ -166,7 +164,7 @@ async function onInputPaste(e: ClipboardEvent) {
           const blob = await ci.getType('text/plain')
           const buf = await blob.arrayBuffer()
           originalBuffer.value = buf
-          const txt = decodeCSVFromBuffer(buf, selectedEncoding.value)
+          const txt = decodeCSVFromBuffer(buf)
           if (txt && txt.includes(';')) {
             csvText.value = txt
             parseToTable(txt)
@@ -242,7 +240,7 @@ async function pasteFromClipboard() {
           const blob = await item.getType('text/csv')
           const buf = await blob.arrayBuffer()
           originalBuffer.value = buf
-          const text = decodeCSVFromBuffer(buf, selectedEncoding.value)
+          const text = decodeCSVFromBuffer(buf)
           csvText.value = text
           parseToTable(text)
           return
@@ -251,7 +249,7 @@ async function pasteFromClipboard() {
           const blob = await item.getType('text/plain')
           const buf = await blob.arrayBuffer()
           originalBuffer.value = buf
-          const text = decodeCSVFromBuffer(buf, selectedEncoding.value)
+          const text = decodeCSVFromBuffer(buf)
           if (text && text.includes(';')) {
             csvText.value = text
             parseToTable(text)
@@ -306,13 +304,7 @@ function detectDataStart(lines: string[]) {
   return 0
 }
 
-function reDecodeWithEncoding(enc: 'auto' | 'utf-8' | 'windows-1251') {
-  selectedEncoding.value = enc
-  if (!originalBuffer.value) return
-  const text = decodeCSVFromBuffer(originalBuffer.value, enc)
-  csvText.value = text
-  parseToTable(text)
-}
+// advanced re-decode removed
 
 let pasteListener: any
 onMounted(() => {
@@ -322,24 +314,9 @@ onMounted(() => {
   pasteListener = (e: ClipboardEvent) => onInputPaste(e)
   window.addEventListener('paste', pasteListener as any)
   setTimeout(() => pasteCatcher.value?.focus(), 0)
-  const onDocClick = (e: MouseEvent) => {
-    if (!advContainer.value) return
-    if (advancedOpen.value && !advContainer.value.contains(e.target as Node)) advancedOpen.value = false
-  }
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') advancedOpen.value = false
-  }
-  ;(window as any).__advHandlers = { onDocClick, onKey }
-  document.addEventListener('click', onDocClick)
-  document.addEventListener('keydown', onKey)
 })
 onBeforeUnmount(() => {
   if (pasteListener) window.removeEventListener('paste', pasteListener as any)
-  const h = (window as any).__advHandlers
-  if (h) {
-    document.removeEventListener('click', h.onDocClick)
-    document.removeEventListener('keydown', h.onKey)
-  }
 })
 </script>
 
@@ -374,25 +351,7 @@ onBeforeUnmount(() => {
         <button v-if="hasResults && hasTableData" class="btn" @click="showSource = !showSource">{{ showSource ? 'Hide source table' : 'Show source table' }}</button>
         <button v-if="hasTableData" class="btn primary" :disabled="processing" @click="processCurrentTable">Process data</button>
         <button v-if="hasResults" class="btn primary" :disabled="processing" @click="exportCSV">Save results to file</button>
-        <div v-if="originalBuffer" class="adv-container" ref="advContainer">
-          <button class="btn" @click="advancedOpen = !advancedOpen">{{ advancedOpen ? 'Hide advanced settings' : 'Show advanced settings' }}</button>
-          <div v-if="advancedOpen" class="adv-popover">
-            <div class="caret" />
-            <div class="row">
-              <label>Encoding:</label>
-              <select v-model="selectedEncoding" @change="reDecodeWithEncoding(selectedEncoding)">
-                <option value="auto">Auto</option>
-                <option value="utf-8">UTF-8</option>
-                <option value="windows-1251">CP1251</option>
-              </select>
-            </div>
-            <div class="row">
-              <label>Data starts at line:</label>
-              <input type="number" min="0" :max="(csvText.split(/\r?\n/).length-1)" v-model.number="startLineOverride" @change="parseToTable(csvText)" />
-              <span class="hint-text">0-based</span>
-            </div>
-          </div>
-        </div>
+        
       </div>
       <p v-if="error" class="error">{{ error }}</p>
     </section>
@@ -446,7 +405,7 @@ onBeforeUnmount(() => {
             <tr v-for="row in processed!.results" :key="row.position">
               <td>{{ row.position }}</td>
               <td>{{ row.code }}</td>
-              <td>{{ row.allergen }}</td>
+              <td v-html="wrapAllergen(row.allergen)"></td>
               <td>{{ row.processedMean.toFixed(2) }}</td>
               <td>{{ row.correctedSignal.toFixed(2) }}</td>
               <td>{{ row.concentration_IU_ml.toFixed(3) }}</td>
@@ -470,6 +429,7 @@ onBeforeUnmount(() => {
   margin: 0 auto;
   padding: 32px 20px 40px;
   color: #0b1220;
+  font-size: 19px;
 }
 .header h1 {
   margin: 0 0 8px 0;
@@ -532,10 +492,10 @@ onBeforeUnmount(() => {
 .stat .label { color: #6b7280; font-size: 12px; }
 .stat .value { font-size: 18px; font-weight: 600; }
 .table-wrap { margin-top: 14px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 12px; }
-.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table { width: 100%; border-collapse: collapse; font-size: 17px; }
 .table th, .table td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; text-align: left; vertical-align: top; }
 .table thead th { background: #f9fafb; font-weight: 600; color: #374151; }
-.badge { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; border: 1px solid #e5e7eb; }
+.badge { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 14px; border: 1px solid #e5e7eb; }
 .lvl-0 { background: #f3f4f6; color: #374151; }
 .lvl-1 { background: #ecfeff; color: #0e7490; border-color: #a5f3fc; }
 .lvl-2 { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
@@ -550,22 +510,27 @@ onBeforeUnmount(() => {
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   padding: 6px 8px;
-  font-size: 14px;
+  font-size: 17px;
 }
-.preamble { margin-top: 10px; margin-bottom: 10px; color: #334155; font-size: 13px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 10px; border-radius: 8px; }
-.map-badge { margin-left: 6px; font-size: 11px; padding: 2px 6px; border: 1px solid #e5e7eb; border-radius: 999px; color: #334155; background: #f1f5f9; }
+.preamble { margin-top: 10px; margin-bottom: 10px; color: #334155; font-size: 17px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 12px; border-radius: 8px; }
+.map-badge { margin-left: 6px; font-size: 13px; padding: 2px 6px; border: 1px solid #e5e7eb; border-radius: 999px; color: #334155; background: #f1f5f9; }
 .bg-cell { background: #fff7ed; }
 .source .table td { white-space: nowrap; }
 .map-badge { white-space: nowrap; display: inline-flex; align-items: center; }
+
+/* Results table enhancements */
+.results .table tbody tr:nth-child(even) { background: #fcfcfd; }
+.results .table th:nth-child(3),
+.results .table td:nth-child(3) { max-width: 300px; white-space: normal; overflow-wrap: anywhere; }
+.results .table th:nth-child(3) { max-width: 300px; }
+
+.btn { font-size: 17px; }
+.kbd { font-size: 15px; }
 .controls { margin-top: 10px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
 .adv-inline { display: inline-flex; gap: 16px; flex-wrap: wrap; align-items: center; }
 .controls .row { display: inline-flex; gap: 8px; align-items: center; }
 .controls select, .controls input[type="number"] { border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 8px; }
-.adv-container { position: relative; display: inline-block; }
-.adv-popover { position: absolute; z-index: 20; top: 42px; right: 0; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.08); display: flex; gap: 16px; align-items: center; }
-.adv-popover .row { display: inline-flex; gap: 8px; align-items: center; }
-.adv-popover select, .adv-popover input[type="number"] { border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 8px; }
-.adv-popover .caret { position: absolute; top: -8px; right: 24px; width: 16px; height: 16px; background: #ffffff; border-left: 1px solid #e5e7eb; border-top: 1px solid #e5e7eb; transform: rotate(45deg); }
+/* advanced settings removed */
 
 .hint { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; color: #64748b; }
 .hint-title { font-weight: 600; color: #475569; }
