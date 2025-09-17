@@ -6,6 +6,43 @@
     <meta name="theme-color" content="#4f46e5">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Allergen Biochip Analyzer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --bg: #f6f8fb;
+        --surface: #ffffff;
+        --text: #0b1220;
+        --muted: #475569;
+        --border: #e5e7eb;
+        --primary: #4f46e5;
+        --primary-600: #4338ca;
+        --primary-100: #eef2ff;
+        --primary-200: #e0e7ff;
+        --primary-300: #c7d2fe;
+        --radius-lg: 12px;
+        --radius-md: 10px;
+        --radius-sm: 8px;
+        --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+        --shadow-md: 0 6px 20px rgba(2, 6, 23, 0.06);
+      }
+      html, body { height: 100%; }
+      *, *::before, *::after { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background:
+          radial-gradient(1200px 400px at 10% -10%, rgba(79,70,229,0.06), transparent 60%),
+          radial-gradient(1000px 500px at 110% -20%, rgba(2,6,23,0.05), transparent 60%),
+          var(--bg);
+        background-repeat: no-repeat;
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      button { font: inherit; }
+    </style>
   </head>
   <body>
     <div id="app"></div>
