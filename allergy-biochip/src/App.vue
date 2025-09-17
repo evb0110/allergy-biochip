@@ -359,9 +359,6 @@ onBeforeUnmount(() => {
     <section v-if="processing" class="processing">Processing…</section>
 
     <section v-if="hasTableData" class="source">
-      <div v-if="hasResults" class="actions" style="margin-top:8px;">
-        <button class="btn" @click="showSource = !showSource">{{ showSource ? 'Hide source table' : 'Show source table' }}</button>
-      </div>
       <div v-if="preamble" class="preamble">{{ preamble }}</div>
       <div v-if="showSource" class="table-wrap">
         <table class="table">
@@ -478,12 +475,13 @@ onBeforeUnmount(() => {
   padding: 8px 14px;
   border-radius: 10px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn:hover { background: #e0e7ff; }
 .btn.primary { background: #4f46e5; color: #fff; border-color: #4f46e5; }
 .btn.primary:hover { background: #4338ca; }
 .btn.ghost { background: transparent; color: #374151; border-color: #e5e7eb; }
-.actions { margin-top: 12px; display: flex; gap: 10px; }
+.actions { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
 .error { color: #b91c1c; margin-top: 10px; }
 .processing { margin: 18px 0; color: #111827; }
 .results { margin-top: 18px; }
